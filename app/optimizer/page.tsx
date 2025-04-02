@@ -1,606 +1,754 @@
 "use client"
 
-import { useEffect, useState } from "react"
-import Link from "next/link"
-import { toPng } from "html-to-image"
-import { Calendar, ChevronLeft, ChevronRight, Download, Share2 } from "lucide-react"
-import Holidays from "date-holidays"
+import { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
+import { toPng } from "html-to-image";
+import { Calendar, ChevronLeft, ChevronRight, Download, Share2 } from "lucide-react";
+import Holidays from "date-holidays";
 
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
-// Define types
+// --- Helper Functions ---
+
+// Helper function to check if two dates are the same day (ignoring time)
+const isSameDay = (date1: Date, date2: Date): boolean => {
+    if (!date1 || !date2) return false;
+    return (
+        date1.getFullYear() === date2.getFullYear() &&
+        date1.getMonth() === date2.getMonth() &&
+        date1.getDate() === date2.getDate()
+    );
+};
+
+// Helper function to add days to a date
+const addDays = (date: Date, days: number): Date => {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+};
+
+// --- Define Types ---
 interface Holiday {
-  date: Date
-  name: string
-  type: string
+    date: Date;
+    name: string;
+    type: string;
 }
 
 interface OptimizationResult {
-  startDate: Date
-  endDate: Date
-  totalDays: number
-  ptoDays: Date[]
-  holidays: Holiday[]
-  weekends: Date[]
+    startDate: Date;
+    endDate: Date;
+    totalDays: number;
+    ptoDays: Date[];
+    holidays: Holiday[]; // Specific holidays within the result range
+    weekends: Date[];   // Specific weekends within the result range
 }
 
 interface CountryOption {
-  code: string
-  name: string
+    code: string;
+    name: string;
 }
 
-export default function OptimizerPage() {
-  const [countries, setCountries] = useState<CountryOption[]>([])
-  const [selectedCountry, setSelectedCountry] = useState<string>("")
-  const [ptoDaysCount, setPtoDaysCount] = useState<number>(10)
-  const [year, setYear] = useState<number>(new Date().getFullYear())
-  const [results, setResults] = useState<OptimizationResult[]>([])
-  const [isCalculating, setIsCalculating] = useState<boolean>(false)
-  const [currentMonth, setCurrentMonth] = useState<number>(new Date().getMonth())
-  const [calendarRef, setCalendarRef] = useState<HTMLDivElement | null>(null)
-
-  // Initialize countries list
-  useEffect(() => {
-    const hd = new Holidays()
-    const countryCodes = hd.getCountries()
-    const countryOptions: CountryOption[] = []
-
-    for (const code in countryCodes) {
-      countryOptions.push({
-        code,
-        name: countryCodes[code],
-      })
-    }
-
-    setCountries(countryOptions.sort((a, b) => a.name.localeCompare(b.name)))
-
-    // Set default country if available
-    if (countryOptions.length > 0) {
-      // Try to detect user's country or default to US
-      const defaultCountry = "US"
-      setSelectedCountry(defaultCountry)
-    }
-  }, [])
-
-  const calculateOptimalPTO = () => {
-    if (!selectedCountry || ptoDaysCount <= 0) return
-
-    setIsCalculating(true)
-
-    setTimeout(() => {
-      try {
-        const hd = new Holidays(selectedCountry)
-        hd.init(selectedCountry)
-
-        // Get all holidays for the year
-        const rawHolidays = hd.getHolidays(year)
-        const holidays: Holiday[] = rawHolidays
-          .map((h) => ({
-            date: new Date(h.date),
-            name: h.name,
-            type: h.type,
-          }))
-          .filter((h) => h.type === "public")
-
-        // Generate all weekends for the year
-        const weekends: Date[] = []
-        const startDate = new Date(year, 0, 1)
-        const endDate = new Date(year, 11, 31)
-
-        for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-          const day = d.getDay()
-          if (day === 0 || day === 6) {
-            // Sunday or Saturday
-            weekends.push(new Date(d))
-          }
-        }
-
-        // Find optimal PTO placement
-        const optimizations: OptimizationResult[] = findOptimalPTOPlacements(holidays, weekends, ptoDaysCount, year)
-
-        setResults(optimizations)
-        setIsCalculating(false)
-
-        // Update calendar to show the first result's month
-        if (optimizations.length > 0) {
-          setCurrentMonth(optimizations[0].startDate.getMonth())
-        }
-      } catch (error) {
-        console.error("Error calculating optimal PTO:", error)
-        setIsCalculating(false)
-      }
-    }, 500) // Small delay to show loading state
-  }
-
-  const findOptimalPTOPlacements = (
-    holidays: Holiday[],
-    weekends: Date[],
+// --- Improved Algorithm ---
+const findOptimalPTOPlacements = (
+    allHolidaysOfYear: Holiday[], // All public holidays for the year
+    allWeekendsOfYear: Date[], // All weekend days for the year
     ptoDaysCount: number,
-    year: number,
-  ): OptimizationResult[] => {
-    // This is a simplified algorithm for demonstration
-    // In a real implementation, we would use a more sophisticated approach
+    year: number
+): OptimizationResult[] => {
+    const results: OptimizationResult[] = [];
+    const yearStart = new Date(year, 0, 1);
+    const yearEnd = new Date(year, 11, 31);
 
-    const results: OptimizationResult[] = []
+    // 1. Create a set of all non-work days (holidays + weekends) for quick lookup
+    const nonWorkDaySet = new Set<string>();
+    const holidayMap = new Map<string, Holiday>(); // Store holiday details
 
-    // Convert holidays to dates only
-    const holidayDates = holidays.map((h) => h.date)
+    allHolidaysOfYear.forEach(h => {
+        const dateStr = h.date.toDateString();
+        nonWorkDaySet.add(dateStr);
+        holidayMap.set(dateStr, h);
+    });
+    allWeekendsOfYear.forEach(w => {
+        nonWorkDaySet.add(w.toDateString());
+    });
 
-    // Get all workdays (non-weekends, non-holidays)
-    const workdays: Date[] = []
-    const startDate = new Date(year, 0, 1)
-    const endDate = new Date(year, 11, 31)
+    // 2. Iterate through all possible start dates in the year
+    for (let d = new Date(yearStart); d <= yearEnd; d = addDays(d, 1)) {
 
-    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
-      const day = d.getDay()
-      const isWeekend = day === 0 || day === 6
-      const isHoliday = holidayDates.some(
-        (h) => h.getFullYear() === d.getFullYear() && h.getMonth() === d.getMonth() && h.getDate() === d.getDate(),
-      )
+        // 3. For each potential start date, try to build the longest sequence
+        let ptoUsed = 0;
+        let currentSequence: Date[] = []; // Stores all consecutive days off (non-work or PTO)
 
-      if (!isWeekend && !isHoliday) {
-        workdays.push(new Date(d))
-      }
-    }
+        // Iterate forward from the potential start date 'd'
+        for (let currentDay = new Date(d); currentDay <= yearEnd; currentDay = addDays(currentDay, 1)) {
+            const currentDayStr = currentDay.toDateString();
+            const isNonWorkDay = nonWorkDaySet.has(currentDayStr);
 
-    // Find clusters of holidays and weekends
-    const clusters: { start: Date; end: Date; days: Date[] }[] = []
+            if (isNonWorkDay) {
+                // If it's a holiday or weekend, just add it to the sequence
+                currentSequence.push(new Date(currentDay));
+            } else {
+                // It's a workday. Can we use PTO?
+                if (ptoUsed < ptoDaysCount) {
+                    // Yes, use a PTO day
+                    ptoUsed++;
+                    currentSequence.push(new Date(currentDay));
+                } else {
+                    // No more PTO days left, this sequence ends here
+                    break;
+                }
+            }
 
-    // Combine holidays and weekends
-    const nonWorkDays = [...holidayDates, ...weekends].sort((a, b) => a.getTime() - b.getTime())
+            // Check if this sequence (ending *now*) is a candidate
+            if (currentSequence.length > 0) {
+                const startDate = currentSequence[0];
+                const endDate = currentSequence[currentSequence.length - 1];
+                const totalDays = currentSequence.length;
 
-    let currentCluster: Date[] = []
+                // Extract PTO days, holidays, weekends from the current sequence
+                const ptoDaysInSequence: Date[] = [];
+                const holidaysInSequence: Holiday[] = [];
+                const weekendsInSequence: Date[] = [];
 
-    for (let i = 0; i < nonWorkDays.length; i++) {
-      const currentDate = nonWorkDays[i]
+                currentSequence.forEach(seqDay => {
+                    const seqDayStr = seqDay.toDateString();
+                    const holidayDetails = holidayMap.get(seqDayStr);
+                    const dayOfWeek = seqDay.getDay();
+                    const isActualWeekend = dayOfWeek === 0 || dayOfWeek === 6;
 
-      if (i === 0) {
-        currentCluster.push(currentDate)
-        continue
-      }
+                    if (holidayDetails) {
+                        holidaysInSequence.push(holidayDetails);
+                        // Note: A holiday can also be a weekend
+                        if (isActualWeekend) {
+                             weekendsInSequence.push(new Date(seqDay));
+                        }
+                    } else if (isActualWeekend) {
+                        weekendsInSequence.push(new Date(seqDay));
+                    } else {
+                        // If it's not a holiday and not a weekend, it *must* be a PTO day we added
+                        ptoDaysInSequence.push(new Date(seqDay));
+                    }
+                });
 
-      const prevDate = nonWorkDays[i - 1]
-      const diffDays = Math.round((currentDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24))
+                // We only consider a result valid if it potentially uses PTO,
+                // or if the user requested 0 PTO days and it's a natural long weekend/holiday block.
+                // The number of PTO days *actually identified* in this sequence must not exceed the budget.
+                if (ptoDaysInSequence.length <= ptoDaysCount && totalDays > 0) {
+                    // Only add if it uses PTO, OR if ptoDaysCount is 0 and it's just holidays/weekends
+                   if (ptoDaysInSequence.length > 0 || (ptoDaysCount === 0 && totalDays > 1 && holidaysInSequence.length + weekendsInSequence.length === totalDays)) {
+                        results.push({
+                            startDate: startDate,
+                            endDate: endDate,
+                            totalDays: totalDays,
+                            ptoDays: ptoDaysInSequence,
+                            holidays: holidaysInSequence,
+                            weekends: weekendsInSequence, // Capture specific weekends in the range
+                        });
+                    }
+                }
+            }
+        } // End inner loop (extending sequence)
+    } // End outer loop (potential start dates)
 
-      if (diffDays <= 3) {
-        // If dates are close (potential for bridging)
-        currentCluster.push(currentDate)
-      } else {
-        if (currentCluster.length > 0) {
-          clusters.push({
-            start: new Date(currentCluster[0]),
-            end: new Date(currentCluster[currentCluster.length - 1]),
-            days: [...currentCluster],
-          })
+    // 4. Post-process the results
+    const uniqueResults = new Map<string, OptimizationResult>();
+
+    results.forEach(res => {
+        const key = `${res.startDate.toDateString()}-${res.endDate.toDateString()}`;
+        const existing = uniqueResults.get(key);
+
+        // Keep the result for a given period if it's the first one found,
+        // or if it achieves the same period length potentially using a number of PTO days
+        // that aligns better with how it was constructed (this logic might need refinement
+        // based on exact preference, e.g., always prefer fewer PTO for same length).
+        // For now, simplest is to just store one per unique period, the first one encountered
+        // which is usually the longest extension found starting earliest.
+        // Let's refine to store the one with the MOST days for that key (should be redundant if key includes end date)
+        // or FEWER PTO days for the exact same start/end dates.
+       if (!existing || res.totalDays > existing.totalDays || (res.totalDays === existing.totalDays && res.ptoDays.length < existing.ptoDays.length) ) {
+           uniqueResults.set(key, res);
+       }
+    });
+
+    // Filter again to ensure PTO count constraint is strictly met after deduplication
+    const finalResults = Array.from(uniqueResults.values())
+       .filter(res => res.ptoDays.length <= ptoDaysCount);
+
+
+    // Sort:
+    // 1. Longest total duration (descending)
+    // 2. Number of PTO days used (descending - prioritize using the budget for a given length)
+    // 3. Start date (ascending)
+    finalResults.sort((a, b) => {
+        if (b.totalDays !== a.totalDays) {
+            return b.totalDays - a.totalDays;
         }
-        currentCluster = [currentDate]
-      }
-    }
-
-    if (currentCluster.length > 0) {
-      clusters.push({
-        start: new Date(currentCluster[0]),
-        end: new Date(currentCluster[currentCluster.length - 1]),
-        days: [...currentCluster],
-      })
-    }
-
-    // For each significant cluster, try to extend it with PTO days
-    for (const cluster of clusters) {
-      // Skip small clusters
-      if (cluster.days.length < 2) continue
-
-      // Find workdays that could be used as PTO to extend this cluster
-      const potentialPTODays: Date[] = []
-
-      // Look for workdays before the cluster
-      const clusterStart = new Date(cluster.start)
-      clusterStart.setDate(clusterStart.getDate() - 5) // Look up to 5 days before
-
-      for (let d = new Date(clusterStart); d < cluster.start; d.setDate(d.getDate() + 1)) {
-        const isWorkday = workdays.some(
-          (w) => w.getFullYear() === d.getFullYear() && w.getMonth() === d.getMonth() && w.getDate() === d.getDate(),
-        )
-
-        if (isWorkday) {
-          potentialPTODays.push(new Date(d))
+        // For same total length, prioritize results using more PTO (closer to budget)
+        if (b.ptoDays.length !== a.ptoDays.length) {
+           return b.ptoDays.length - a.ptoDays.length;
         }
-      }
+        // // Alternative: Prioritize results using fewer PTO days for the same length
+        // if (a.ptoDays.length !== b.ptoDays.length) {
+        //     return a.ptoDays.length - b.ptoDays.length;
+        // }
+        return a.startDate.getTime() - b.startDate.getTime(); // Earlier start date first
+    });
 
-      // Look for workdays after the cluster
-      const clusterEnd = new Date(cluster.end)
-      const afterEnd = new Date(clusterEnd)
-      afterEnd.setDate(afterEnd.getDate() + 5) // Look up to 5 days after
+    // Limit to top N results (e.g., top 10)
+    return finalResults.slice(0, 10);
+};
 
-      for (let d = new Date(clusterEnd); d <= afterEnd; d.setDate(d.getDate() + 1)) {
-        const isWorkday = workdays.some(
-          (w) => w.getFullYear() === d.getFullYear() && w.getMonth() === d.getMonth() && w.getDate() === d.getDate(),
-        )
 
-        if (isWorkday) {
-          potentialPTODays.push(new Date(d))
+// --- React Component ---
+export default function OptimizerPage() {
+    const [countries, setCountries] = useState<CountryOption[]>([]);
+    const [selectedCountry, setSelectedCountry] = useState<string>("");
+    const [ptoDaysCount, setPtoDaysCount] = useState<number>(10);
+    const [year, setYear] = useState<number>(new Date().getFullYear());
+    const [results, setResults] = useState<OptimizationResult[]>([]);
+    const [isCalculating, setIsCalculating] = useState<boolean>(false);
+    const [currentMonth, setCurrentMonth] = useState<number>(new Date().getMonth());
+    const [activeTab, setActiveTab] = useState<string>("option-0"); // Track active tab
+
+    // Ref for the calendar element of the currently active tab
+    const calendarRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+    // Function to set ref for a specific tab index
+    const setCalendarRef = useCallback((el: HTMLDivElement | null, index: number) => {
+        calendarRefs.current[index] = el;
+    }, []);
+
+
+    // Initialize countries list
+    useEffect(() => {
+        const hd = new Holidays();
+        const countryCodes = hd.getCountries();
+        const countryOptions: CountryOption[] = [];
+
+        for (const code in countryCodes) {
+            // Basic filtering for countries likely to have data
+            if (code.length === 2) { // Often primary countries have 2-letter codes
+                 countryOptions.push({
+                    code,
+                    name: countryCodes[code],
+                });
+            }
         }
-      }
 
-      // If we have enough potential PTO days
-      if (potentialPTODays.length >= ptoDaysCount) {
-        // Sort by proximity to the cluster
-        potentialPTODays.sort((a, b) => {
-          const aDist = Math.min(
-            Math.abs(a.getTime() - cluster.start.getTime()),
-            Math.abs(a.getTime() - cluster.end.getTime()),
-          )
-          const bDist = Math.min(
-            Math.abs(b.getTime() - cluster.start.getTime()),
-            Math.abs(b.getTime() - cluster.end.getTime()),
-          )
-          return aDist - bDist
-        })
+        setCountries(countryOptions.sort((a, b) => a.name.localeCompare(b.name)));
 
-        // Take the closest PTO days
-        const selectedPTODays = potentialPTODays.slice(0, ptoDaysCount)
+        // Set default country if available - Try US, then GB, then first in list
+        const defaultCountries = ["US", "GB"];
+        let foundDefault = false;
+        for(const code of defaultCountries) {
+            if (countryOptions.some(c => c.code === code)) {
+                 setSelectedCountry(code);
+                 foundDefault = true;
+                 break;
+            }
+        }
+        if (!foundDefault && countryOptions.length > 0) {
+             setSelectedCountry(countryOptions[0].code);
+        }
 
-        // Calculate the new extended range
-        const allDays = [...cluster.days, ...selectedPTODays].sort((a, b) => a.getTime() - b.getTime())
+    }, []);
 
-        const extendedStart = allDays[0]
-        const extendedEnd = allDays[allDays.length - 1]
+    const calculateOptimalPTO = () => {
+        if (!selectedCountry || ptoDaysCount < 0) return; // Allow 0 PTO days
 
-        // Calculate total consecutive days (including all days between start and end)
-        const totalDays = Math.round((extendedEnd.getTime() - extendedStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+        setIsCalculating(true);
+        setResults([]); // Clear previous results immediately
 
-        results.push({
-          startDate: extendedStart,
-          endDate: extendedEnd,
-          totalDays,
-          ptoDays: selectedPTODays,
-          holidays: holidays.filter((h) => h.date >= extendedStart && h.date <= extendedEnd),
-          weekends: weekends.filter((w) => w >= extendedStart && w <= extendedEnd),
-        })
-      }
-    }
+        // Use setTimeout for visual feedback, calculation itself might be fast
+        setTimeout(() => {
+            try {
+                const hd = new Holidays();
+                // Ensure the country is initialized before getting holidays
+                // This might fetch subdivisions if needed, depending on the library version/country
+                hd.init(selectedCountry);
 
-    // Sort results by total days (descending)
-    return results.sort((a, b) => b.totalDays - a.totalDays)
-  }
+                // Get all public holidays for the year
+                const rawHolidays = hd.getHolidays(year);
+                const publicHolidays: Holiday[] = rawHolidays
+                    .filter((h) => h.type === "public")
+                    .map((h) => ({
+                        date: new Date(h.date), // Ensure Date object
+                        name: h.name,
+                        type: h.type,
+                    }))
+                    // Sort holidays just in case they aren't
+                    .sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  const formatDate = (date: Date): string => {
-    return date.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    })
-  }
+                // Generate all weekends for the year
+                const weekends: Date[] = [];
+                const yearStartDate = new Date(year, 0, 1);
+                const yearEndDate = new Date(year, 11, 31);
+                for (let d = new Date(yearStartDate); d <= yearEndDate; d = addDays(d, 1)) {
+                    const day = d.getDay();
+                    if (day === 0 || day === 6) { // Sunday or Saturday
+                        weekends.push(new Date(d));
+                    }
+                }
 
-  const handleShareImage = async () => {
-    if (!calendarRef) return
+                // *** Use the new algorithm ***
+                const optimizations: OptimizationResult[] = findOptimalPTOPlacements(
+                    publicHolidays,
+                    weekends,
+                    ptoDaysCount,
+                    year
+                );
 
-    try {
-      const dataUrl = await toPng(calendarRef)
+                console.log("Optimization Results:", optimizations); // Debugging log
 
-      // Create a temporary link element
-      const link = document.createElement("a")
-      link.download = "holiday-plan.png"
-      link.href = dataUrl
-      link.click()
-    } catch (error) {
-      console.error("Error generating image:", error)
-    }
-  }
+                setResults(optimizations);
+                setIsCalculating(false);
 
-  const renderCalendar = (result: OptimizationResult | null) => {
-    const daysInMonth = new Date(year, currentMonth + 1, 0).getDate()
-    const firstDayOfMonth = new Date(year, currentMonth, 1).getDay()
+                if (optimizations.length > 0) {
+                    setCurrentMonth(optimizations[0].startDate.getMonth());
+                    setActiveTab("option-0"); // Reset to first tab on new calculation
+                } else {
+                    setCurrentMonth(new Date().getMonth()); // Reset month if no results
+                }
+            } catch (error) {
+                console.error("Error calculating optimal PTO:", error);
+                // Consider showing an error message to the user
+                setResults([]); // Clear results on error
+                setIsCalculating(false);
+            }
+        }, 50); // Short delay for UI feedback
+    };
 
-    // Create array of days for the current month
-    const days = []
-    for (let i = 1; i <= daysInMonth; i++) {
-      days.push(new Date(year, currentMonth, i))
-    }
+    const formatDate = (date: Date | null | undefined): string => {
+        if (!date) return "";
+        return date.toLocaleDateString("en-US", {
+            weekday: "short",
+            month: "short",
+            day: "numeric",
+        });
+    };
 
-    // Add empty cells for days before the first day of the month
-    const emptyCells = Array(firstDayOfMonth).fill(null)
+    const handleShareImage = async () => {
+        // Find the index of the active tab
+        const activeIndex = parseInt(activeTab.split('-')[1] || '0', 10);
+        const activeCalendarRef = calendarRefs.current[activeIndex];
 
-    return (
-      <div className="mt-4">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-medium">
-            {new Date(year, currentMonth).toLocaleDateString("en-US", { month: "long", year: "numeric" })}
-          </h3>
-          <div className="flex gap-2">
-            <Button variant="outline" size="icon" onClick={() => setCurrentMonth((prev) => (prev - 1 + 12) % 12)}>
-              <ChevronLeft className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => setCurrentMonth((prev) => (prev + 1) % 12)}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-7 gap-1">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
-            <div key={day} className="h-8 flex items-center justify-center text-xs font-medium text-muted-foreground">
-              {day}
-            </div>
-          ))}
+        if (!activeCalendarRef) {
+            console.error("Active calendar ref not found for tab:", activeTab);
+            // Optionally show an error message to the user
+            return;
+        }
 
-          {emptyCells.map((_, index) => (
-            <div key={`empty-${index}`} className="h-12 p-1" />
-          ))}
+        try {
+            // Ensure styles are applied before capture (might need slight delay or specific library options)
+            const dataUrl = await toPng(activeCalendarRef, {
+                // Options to improve quality or include styles if needed
+                 backgroundColor: '#ffffff', // Set background for transparency issues
+                 pixelRatio: 2, // Increase resolution
+                 style: {
+                    // Ensure styles that might be applied via cascade are included if necessary
+                 }
+            });
 
-          {days.map((day) => {
-            const isWeekend = day.getDay() === 0 || day.getDay() === 6
+            // Create a temporary link element
+            const link = document.createElement("a");
+            link.download = `holiday-plan-${year}-opt${activeIndex + 1}.png`;
+            link.href = dataUrl;
+            document.body.appendChild(link); // Required for Firefox
+            link.click();
+            document.body.removeChild(link); // Clean up
+        } catch (error) {
+            console.error("Error generating image:", error);
+            // Optionally show an error message to the user
+        }
+    };
 
-            const isHoliday = result?.holidays.some(
-              (h) => h.date.getDate() === day.getDate() && h.date.getMonth() === day.getMonth(),
-            )
+    const renderCalendar = (result: OptimizationResult | null, month: number, year: number) => {
+        if (!result) return null; // Should not happen if called correctly, but safe guard
 
-            const isPTO = result?.ptoDays.some((p) => p.getDate() === day.getDate() && p.getMonth() === day.getMonth())
+        const daysInMonth = new Date(year, month + 1, 0).getDate();
+        const firstDayOfMonthDate = new Date(year, month, 1);
+        const firstDayOfMonthWeekday = firstDayOfMonthDate.getDay(); // 0=Sun, 1=Mon, ...
 
-            const isInRange = result && day >= result.startDate && day <= result.endDate
+        // Create array of Date objects for the current month
+        const days: Date[] = [];
+        for (let i = 1; i <= daysInMonth; i++) {
+            days.push(new Date(year, month, i));
+        }
 
-            let bgColor = "bg-background"
-            let textColor = ""
+        // Add empty cells for days before the first day of the month
+        const emptyCells = Array(firstDayOfMonthWeekday).fill(null);
 
-            if (isWeekend && isInRange) bgColor = "bg-blue-100"
-            if (isHoliday) bgColor = "bg-red-100"
-            if (isPTO) bgColor = "bg-green-100"
-
-            // Current day
-            const isToday = day.toDateString() === new Date().toDateString()
-            if (isToday) textColor = "font-bold"
-
-            const holiday = result?.holidays.find(
-              (h) => h.date.getDate() === day.getDate() && h.date.getMonth() === day.getMonth(),
-            )
-
-            return (
-              <TooltipProvider key={day.toString()}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <div className={`h-12 p-1 ${isInRange ? "ring-1 ring-primary/20" : ""}`}>
-                      <div
-                        className={`h-full w-full rounded-md ${bgColor} flex flex-col items-center justify-center ${textColor}`}
-                      >
-                        <span className="text-sm">{day.getDate()}</span>
-                        {isHoliday && (
-                          <span className="text-[10px] leading-tight text-red-600 truncate max-w-full px-1">
-                            {holiday?.name.length > 10 ? `${holiday?.name.substring(0, 10)}...` : holiday?.name}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </TooltipTrigger>
-                  {(isHoliday || isPTO || isWeekend) && (
-                    <TooltipContent>
-                      {isHoliday && <p>{holiday?.name}</p>}
-                      {isPTO && <p>PTO Day</p>}
-                      {isWeekend && !isHoliday && !isPTO && <p>Weekend</p>}
-                    </TooltipContent>
-                  )}
-                </Tooltip>
-              </TooltipProvider>
-            )
-          })}
-        </div>
-
-        <div className="flex gap-4 mt-4 justify-center">
-          <div className="flex items-center gap-1">
-            <div className="h-3 w-3 rounded-full bg-blue-100"></div>
-            <span className="text-xs">Weekend</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="h-3 w-3 rounded-full bg-red-100"></div>
-            <span className="text-xs">Holiday</span>
-          </div>
-          <div className="flex items-center gap-1">
-            <div className="h-3 w-3 rounded-full bg-green-100"></div>
-            <span className="text-xs">PTO</span>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
-        <div className="container flex h-16 items-center justify-between">
-          <div className="flex items-center gap-2 font-bold">
-            <Calendar className="h-5 w-5 text-primary" />
-            <span>SmartHolidayPlanner</span>
-          </div>
-          <nav className="flex items-center gap-4">
-            <Link href="/" className="text-sm font-medium">
-              Home
-            </Link>
-            <Link href="/optimizer" className="text-sm font-medium">
-              Optimizer
-            </Link>
-            <Link href="/support" className="text-sm font-medium">
-              Support
-            </Link>
-          </nav>
-        </div>
-      </header>
-      <main className="flex-1 container py-8">
-        <h1 className="text-3xl font-bold mb-8">Holiday Optimizer</h1>
-
-        <div className="grid gap-8 md:grid-cols-[1fr_2fr]">
-          <Card>
-            <CardHeader>
-              <CardTitle>Input Parameters</CardTitle>
-              <CardDescription>
-                Select your country and enter the number of PTO days you have available.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="country">Country</Label>
-                <Select value={selectedCountry} onValueChange={setSelectedCountry}>
-                  <SelectTrigger id="country">
-                    <SelectValue placeholder="Select a country" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {countries.map((country) => (
-                      <SelectItem key={country.code} value={country.code}>
-                        {country.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="year">Year</Label>
-                <Select value={year.toString()} onValueChange={(value) => setYear(Number.parseInt(value))}>
-                  <SelectTrigger id="year">
-                    <SelectValue placeholder="Select year" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {[2024, 2025, 2026].map((y) => (
-                      <SelectItem key={y} value={y.toString()}>
-                        {y}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="pto-days">Number of PTO Days</Label>
-                <Input
-                  id="pto-days"
-                  type="number"
-                  min="1"
-                  max="30"
-                  value={ptoDaysCount}
-                  onChange={(e) => setPtoDaysCount(Number.parseInt(e.target.value) || 0)}
-                />
-              </div>
-            </CardContent>
-            <CardFooter>
-              <Button
-                onClick={calculateOptimalPTO}
-                disabled={!selectedCountry || ptoDaysCount <= 0 || isCalculating}
-                className="w-full"
-              >
-                {isCalculating ? "Calculating..." : "Calculate Optimal PTO"}
-              </Button>
-            </CardFooter>
-          </Card>
-
-          <div>
-            {results.length > 0 ? (
-              <Tabs defaultValue="option-0">
-                <TabsList className="mb-4">
-                  {results.slice(0, 3).map((_, index) => (
-                    <TabsTrigger key={index} value={`option-${index}`}>
-                      Option {index + 1}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-
-                {results.slice(0, 3).map((result, index) => (
-                  <TabsContent key={index} value={`option-${index}`}>
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>Optimization Option {index + 1}</CardTitle>
-                        <CardDescription>
-                          {formatDate(result.startDate)} - {formatDate(result.endDate)}
-                        </CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-4">
-                          <div className="grid gap-2 md:grid-cols-3">
-                            <div className="flex flex-col items-center justify-center rounded-lg border p-4">
-                              <span className="text-2xl font-bold">{result.totalDays}</span>
-                              <span className="text-sm text-muted-foreground">Total Days Off</span>
-                            </div>
-                            <div className="flex flex-col items-center justify-center rounded-lg border p-4">
-                              <span className="text-2xl font-bold">{result.ptoDays.length}</span>
-                              <span className="text-sm text-muted-foreground">PTO Days Used</span>
-                            </div>
-                            <div className="flex flex-col items-center justify-center rounded-lg border p-4">
-                              <span className="text-2xl font-bold">
-                                {(result.totalDays / result.ptoDays.length).toFixed(1)}
-                              </span>
-                              <span className="text-sm text-muted-foreground">Days Off Per PTO</span>
-                            </div>
-                          </div>
-
-                          <div ref={index === 0 ? setCalendarRef : undefined}>{renderCalendar(result)}</div>
-
-                          <div className="space-y-2">
-                            <h4 className="font-medium">PTO Days</h4>
-                            <div className="flex flex-wrap gap-2">
-                              {result.ptoDays.map((day, i) => (
-                                <div key={i} className="rounded-md bg-green-100 px-2 py-1 text-xs">
-                                  {formatDate(day)}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <h4 className="font-medium">Holidays</h4>
-                            <div className="flex flex-wrap gap-2">
-                              {result.holidays.map((holiday, i) => (
-                                <div key={i} className="rounded-md bg-red-100 px-2 py-1 text-xs">
-                                  {formatDate(holiday.date)}: {holiday.name}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+        return (
+            <div className="mt-4 border rounded-lg p-4">
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-medium text-lg">
+                        {firstDayOfMonthDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+                    </h3>
+                    {/* Month navigation could be added here if needed within the calendar itself */}
+                </div>
+                <div className="grid grid-cols-7 gap-px text-center text-xs"> {/* Use gap-px for fine lines */}
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                        <div key={day} className="pb-1 font-medium text-muted-foreground">
+                            {day}
                         </div>
-                      </CardContent>
-                      <CardFooter className="flex justify-between">
-                        <Button variant="outline" onClick={handleShareImage}>
-                          <Download className="mr-2 h-4 w-4" />
-                          Download
-                        </Button>
-                        <Button>
-                          <Share2 className="mr-2 h-4 w-4" />
-                          Share
-                        </Button>
-                      </CardFooter>
-                    </Card>
-                  </TabsContent>
-                ))}
-              </Tabs>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full p-8 text-center">
-                <Calendar className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="text-lg font-medium mb-2">No Results Yet</h3>
-                <p className="text-muted-foreground mb-4">
-                  Select your country and PTO days, then click Calculate to see optimization options.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </main>
-      <footer className="border-t mt-12">
-        <div className="container flex flex-col items-center justify-between gap-4 py-10 md:h-24 md:flex-row md:py-0">
-          <div className="flex flex-col items-center gap-4 px-8 md:flex-row md:gap-2 md:px-0">
-            <Calendar className="h-5 w-5 text-primary" />
-            <p className="text-center text-sm leading-loose md:text-left">
-              © 2024 SmartHolidayPlanner. All rights reserved.
-            </p>
-          </div>
-          <div className="flex gap-4">
-            <Link href="/support" className="text-sm font-medium">
-              Support the Developer
-            </Link>
-          </div>
-        </div>
-      </footer>
-    </div>
-  )
-}
+                    ))}
 
+                    {emptyCells.map((_, index) => (
+                        <div key={`empty-${index}`} className="h-16" /> // Adjust height as needed
+                    ))}
+
+                    {days.map((day) => {
+                        const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                        const holidayInfo = result.holidays.find(h => isSameDay(h.date, day));
+                        const isHoliday = !!holidayInfo;
+                        const isPTO = result.ptoDays.some(p => isSameDay(p, day));
+                        const isInRange = day >= result.startDate && day <= result.endDate;
+
+                        let bgColor = "bg-white"; // Default background
+                        let textColor = "text-gray-700";
+                        let ringClass = "";
+                        let fontWeight = "font-normal";
+
+                        // Determine background color - PTO takes precedence
+                        if (isPTO) {
+                            bgColor = "bg-green-100 hover:bg-green-200";
+                            textColor = "text-green-800";
+                        } else if (isHoliday) {
+                            bgColor = "bg-red-100 hover:bg-red-200";
+                             textColor = "text-red-800";
+                        } else if (isWeekend && isInRange) {
+                            bgColor = "bg-blue-100 hover:bg-blue-200";
+                             textColor = "text-blue-800";
+                        } else if (isWeekend) {
+                             bgColor = "bg-gray-50"; // Subtle grey for weekends outside range
+                             textColor = "text-gray-500";
+                        } else if (!isInRange) {
+                             textColor = "text-gray-400"; // Dim workdays outside range
+                        }
+
+
+                        if (isInRange) {
+                            ringClass = "ring-1 ring-primary/60 ring-inset"; // Inset ring within the cell
+                        }
+
+                        const isToday = isSameDay(day, new Date());
+                        if (isToday) {
+                            fontWeight = "font-bold";
+                            textColor = isPTO ? textColor : (isHoliday ? textColor : (isWeekend ? textColor : "text-primary")); // Highlight today's number
+                        }
+
+
+                        return (
+                            <TooltipProvider key={day.toISOString()} delayDuration={100}>
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className={`h-16 p-1 ${ringClass} ${bgColor} transition-colors duration-150 flex flex-col items-center justify-start border border-gray-100`}>
+                                                <span className={`text-sm ${fontWeight} ${textColor} mb-0.5`}>
+                                                    {day.getDate()}
+                                                </span>
+                                                {isHoliday && !isPTO && (
+                                                    <span className="text-[10px] leading-tight text-red-700 font-medium truncate max-w-full px-0.5 text-center block">
+                                                        {holidayInfo.name.length > 12 ? `${holidayInfo.name.substring(0,10)}...` : holidayInfo.name}
+                                                    </span>
+                                                )}
+                                                {isPTO && (
+                                                    <span className="text-[10px] leading-tight text-green-700 font-bold px-0.5 text-center block">
+                                                        PTO
+                                                    </span>
+                                                )}
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="text-xs max-w-xs">
+                                        <p className="font-semibold">{formatDate(day)}</p>
+                                        {isHoliday && <p>Holiday: {holidayInfo.name}</p>}
+                                        {isPTO && <p>PTO Day</p>}
+                                        {isWeekend && !isHoliday && !isPTO && <p>Weekend</p>}
+                                        {!isHoliday && !isPTO && !isWeekend && <p>Work Day</p>}
+                                    </TooltipContent>
+                                </Tooltip>
+                            </TooltipProvider>
+                        );
+                    })}
+                </div>
+
+                {/* Legend */}
+                <div className="flex gap-3 sm:gap-4 mt-4 justify-center flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-3 w-3 rounded-full bg-blue-100 border border-blue-200"></div>
+                        <span className="text-xs text-muted-foreground">Weekend (in range)</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-3 w-3 rounded-full bg-red-100 border border-red-200"></div>
+                        <span className="text-xs text-muted-foreground">Holiday</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <div className="h-3 w-3 rounded-full bg-green-100 border border-green-200"></div>
+                        <span className="text-xs text-muted-foreground">PTO Used</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                         <div className="h-3 w-3 rounded-full bg-white border border-gray-300"></div>
+                        <span className="text-xs text-muted-foreground">Work Day (in range)</span>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    // Main Component Return
+    return (
+        <div className="flex min-h-screen flex-col bg-gray-50">
+            {/* Header */}
+            <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
+                <div className="container flex h-16 items-center justify-between">
+                    <Link href="/" className="flex items-center gap-2 font-bold text-lg">
+                        <Calendar className="h-5 w-5 text-primary" />
+                        <span>SmartHolidayPlanner</span>
+                    </Link>
+                    {/* <nav className="flex items-center gap-4">
+                        <Link href="/" className="text-sm font-medium text-muted-foreground hover:text-primary">Home</Link>
+                        <Link href="/optimizer" className="text-sm font-medium text-primary" aria-current="page">Optimizer</Link>
+                        <Link href="/support" className="text-sm font-medium text-muted-foreground hover:text-primary">Support</Link>
+                    </nav> */}
+                </div>
+            </header>
+
+            {/* Main Content */}
+            <main className="flex-1 container py-8 md:py-12">
+                <h1 className="text-3xl font-bold mb-8 text-center md:text-left">Holiday Optimizer</h1>
+
+                <div className="grid gap-8 md:grid-cols-1 lg:grid-cols-3">
+                    {/* Input Section */}
+                    <div className="lg:col-span-1">
+                        <Card className="sticky top-20"> {/* Make inputs sticky */}
+                            <CardHeader>
+                                <CardTitle>Plan Your Break</CardTitle>
+                                <CardDescription>
+                                    Find the longest possible holiday using your available PTO days.
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="country">Country</Label>
+                                    <Select value={selectedCountry} onValueChange={setSelectedCountry} required>
+                                        <SelectTrigger id="country">
+                                            <SelectValue placeholder="Select a country" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {countries.length === 0 && <SelectItem value="loading" disabled>Loading countries...</SelectItem>}
+                                            {countries.map((country) => (
+                                                <SelectItem key={country.code} value={country.code}>
+                                                    {country.name} ({country.code})
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="year">Year</Label>
+                                        <Select value={year.toString()} onValueChange={(value) => setYear(Number.parseInt(value))}>
+                                            <SelectTrigger id="year">
+                                                <SelectValue placeholder="Select year" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {[new Date().getFullYear(), new Date().getFullYear() + 1, new Date().getFullYear() + 2].map((y) => (
+                                                    <SelectItem key={y} value={y.toString()}>
+                                                        {y}
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="pto-days">PTO Days</Label>
+                                        <Input
+                                            id="pto-days"
+                                            type="number"
+                                            min="0" // Allow 0 PTO days
+                                            max="50" // Reasonable max
+                                            value={ptoDaysCount}
+                                            onChange={(e) => setPtoDaysCount(Math.max(0, Number.parseInt(e.target.value) || 0))}
+                                            required
+                                        />
+                                    </div>
+                                </div>
+
+
+                            </CardContent>
+                            <CardFooter>
+                                <Button
+                                    onClick={calculateOptimalPTO}
+                                    disabled={!selectedCountry || ptoDaysCount < 0 || isCalculating}
+                                    className="w-full"
+                                    size="lg"
+                                >
+                                    {isCalculating ? "Calculating..." : "Find Longest Holiday"}
+                                </Button>
+                            </CardFooter>
+                        </Card>
+                    </div>
+
+                    {/* Results Section */}
+                    <div className="lg:col-span-2">
+                        {isCalculating ? (
+                            <div className="flex flex-col items-center justify-center h-64 p-8 text-center border rounded-lg bg-card">
+                                <Calendar className="h-12 w-12 text-primary animate-pulse mb-4" />
+                                <h3 className="text-lg font-medium mb-2">Calculating Optimal Options...</h3>
+                                <p className="text-muted-foreground">Please wait while we crunch the numbers.</p>
+                            </div>
+                        ) : results.length > 0 ? (
+                            <Tabs value={activeTab} onValueChange={setActiveTab}>
+                                <TabsList className="mb-4 grid w-full grid-cols-3">
+                                    {results.slice(0, 3).map((_, index) => (
+                                        <TabsTrigger key={index} value={`option-${index}`} disabled={!results[index]}>
+                                            Option {index + 1}
+                                        </TabsTrigger>
+                                    ))}
+                                </TabsList>
+
+                                {results.slice(0, 3).map((result, index) => (
+                                    <TabsContent key={index} value={`option-${index}`} className="mt-0">
+                                        <Card>
+                                            <CardHeader>
+                                                <CardTitle>Optimization Option {index + 1}: {result.totalDays}-Day Break</CardTitle>
+                                                <CardDescription>
+                                                    From {formatDate(result.startDate)} to {formatDate(result.endDate)} using {result.ptoDays.length} PTO day(s).
+                                                </CardDescription>
+                                            </CardHeader>
+                                            <CardContent className="space-y-6">
+                                                <div className="grid gap-4 sm:grid-cols-3 text-center">
+                                                    <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50">
+                                                        <span className="text-3xl font-bold">{result.totalDays}</span>
+                                                        <span className="text-sm text-muted-foreground mt-1">Total Days Off</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50">
+                                                        <span className="text-3xl font-bold">{result.ptoDays.length}</span>
+                                                        <span className="text-sm text-muted-foreground mt-1">PTO Days Used</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50">
+                                                         <span className="text-3xl font-bold">
+                                                            {/* Avoid division by zero */}
+                                                             {result.ptoDays.length > 0 ? (result.totalDays / result.ptoDays.length).toFixed(1) : 'N/A' }
+                                                         </span>
+                                                         <span className="text-sm text-muted-foreground mt-1">Ratio (Days Off / PTO)</span>
+                                                    </div>
+                                                </div>
+
+                                                {/* Calendar Section with Ref */}
+                                                 <div ref={(el) => setCalendarRef(el, index)}>
+                                                     {renderCalendar(result, result.startDate.getMonth(), year)}
+                                                     {/* Optionally render next month if range spans across months */}
+                                                     {result.startDate.getMonth() !== result.endDate.getMonth() &&
+                                                      result.endDate.getFullYear() === year && /* Only if end is in same year */ (
+                                                        <div className="mt-4">
+                                                          {renderCalendar(result, result.endDate.getMonth(), year)}
+                                                        </div>
+                                                      )}
+                                                 </div>
+
+
+                                                <div className="space-y-3 pt-4 border-t">
+                                                    <h4 className="font-semibold text-base">Breakdown:</h4>
+                                                     {result.ptoDays.length > 0 && (
+                                                        <div className="space-y-1.5">
+                                                            <h5 className="font-medium text-sm">PTO Days ({result.ptoDays.length}):</h5>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {result.ptoDays.map((day, i) => (
+                                                                    <div key={`pto-${i}`} className="rounded-full bg-green-100 px-2.5 py-0.5 text-xs text-green-800 border border-green-200">
+                                                                        {formatDate(day)}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                     )}
+
+                                                    {result.holidays.length > 0 && (
+                                                        <div className="space-y-1.5">
+                                                            <h5 className="font-medium text-sm">Holidays ({result.holidays.length}):</h5>
+                                                            <div className="flex flex-wrap gap-1.5">
+                                                                {result.holidays.map((holiday, i) => (
+                                                                    <TooltipProvider key={`hol-${i}`} delayDuration={100}>
+                                                                       <Tooltip>
+                                                                           <TooltipTrigger asChild>
+                                                                               <div className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs text-red-800 border border-red-200 cursor-default">
+                                                                                    {formatDate(holiday.date)}
+                                                                                </div>
+                                                                            </TooltipTrigger>
+                                                                            <TooltipContent className="text-xs">
+                                                                                {holiday.name}
+                                                                            </TooltipContent>
+                                                                        </Tooltip>
+                                                                    </TooltipProvider>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {result.weekends.length > 0 && (
+                                                         <div className="space-y-1.5">
+                                                            <h5 className="font-medium text-sm">Weekends ({result.weekends.length}):</h5>
+                                                             <div className="flex flex-wrap gap-1.5">
+                                                                 {result.weekends.map((day, i) => (
+                                                                    <div key={`wknd-${i}`} className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs text-blue-800 border border-blue-200">
+                                                                        {formatDate(day)}
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                     )}
+                                                </div>
+                                            </CardContent>
+                                            <CardFooter className="flex justify-end gap-2">
+                                                <Button variant="outline" onClick={handleShareImage}>
+                                                    <Download className="mr-2 h-4 w-4" />
+                                                    Download Image
+                                                </Button>
+                                                {/* Share button functionality needs implementation */}
+                                                {/* <Button disabled>
+                                                    <Share2 className="mr-2 h-4 w-4" />
+                                                    Share
+                                                </Button> */}
+                                            </CardFooter>
+                                        </Card>
+                                    </TabsContent>
+                                ))}
+                            </Tabs>
+                        ) : (
+                             <div className="flex flex-col items-center justify-center h-64 p-8 text-center border rounded-lg bg-card">
+                                <Calendar className="h-12 w-12 text-muted-foreground mb-4" />
+                                <h3 className="text-lg font-medium mb-2">Ready to Plan?</h3>
+                                <p className="text-muted-foreground mb-4">
+                                    Select your country, year, and available PTO days, then click "Find Longest Holiday" to see your options.
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </main>
+
+            {/* Footer */}
+            <footer className="border-t mt-12 bg-background">
+                <div className="container flex flex-col items-center justify-between gap-4 py-6 md:h-20 md:flex-row md:py-0">
+                    <div className="flex flex-col items-center gap-4 px-8 md:flex-row md:gap-2 md:px-0">
+                        <Calendar className="h-5 w-5 text-primary hidden md:block" />
+                        <p className="text-center text-sm leading-loose text-muted-foreground md:text-left">
+                            © {new Date().getFullYear()} SmartHolidayPlanner. Optimize wisely.
+                        </p>
+                    </div>
+                    {/* <div className="flex gap-4">
+                        <Link href="/support" className="text-sm font-medium text-muted-foreground hover:text-primary">
+                            Support the Developer
+                        </Link>
+                    </div> */}
+                </div>
+            </footer>
+        </div>
+    );
+}
