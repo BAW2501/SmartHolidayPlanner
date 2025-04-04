@@ -21,8 +21,8 @@ const MIN_DESIRED_VACATION_LENGTH = 4; // Vacations shorter than this are de-pri
 const isSameDay = (date1: Date, date2: Date): boolean => {
     if (!date1 || !date2) return false;
     return date1.getFullYear() === date2.getFullYear() &&
-           date1.getMonth() === date2.getMonth() &&
-           date1.getDate() === date2.getDate();
+        date1.getMonth() === date2.getMonth() &&
+        date1.getDate() === date2.getDate();
 };
 
 const addDays = (date: Date, days: number): Date => {
@@ -137,13 +137,13 @@ function generateVacationCandidates(
         .map(c => ({ ...c, id: idCounter++ }))
         .sort((a, b) => a.endDate.getTime() - b.endDate.getTime());
 
-     const finalCandidates: VacationCandidate[] = sortedCandidatesWithId.map((candidate, i, arr) => {
-         let latestNonOverlapping = -1;
-         for (let j = i - 1; j >= 0; j--) {
-             if (arr[j].endDate.getTime() < candidate.startDate.getTime()) { latestNonOverlapping = j; break; }
-         }
-         return { ...candidate, nonOverlappingIndex: latestNonOverlapping };
-     });
+    const finalCandidates: VacationCandidate[] = sortedCandidatesWithId.map((candidate, i, arr) => {
+        let latestNonOverlapping = -1;
+        for (let j = i - 1; j >= 0; j--) {
+            if (arr[j].endDate.getTime() < candidate.startDate.getTime()) { latestNonOverlapping = j; break; }
+        }
+        return { ...candidate, nonOverlappingIndex: latestNonOverlapping };
+    });
 
     return finalCandidates;
 }
@@ -156,7 +156,7 @@ function findOptimalVacationSet(
 ): MultiOptimizationResult {
     const n = candidates.length;
     if (n === 0 || totalPtoBudget < 0) {
-         return { chosenVacations: [], totalDaysOff: 0, totalPtoUsed: 0 };
+        return { chosenVacations: [], totalDaysOff: 0, totalPtoUsed: 0 };
     }
 
     // dp[i][p] = { maxTotalDays (adjusted), chosenVacationIds }
@@ -170,8 +170,8 @@ function findOptimalVacationSet(
         const originalDaysValue = currentVacation.totalDays;
         // *** De-prioritization Logic ***
         const adjustedDaysValue = originalDaysValue >= MIN_DESIRED_VACATION_LENGTH
-                                      ? originalDaysValue // Use full value if long enough
-                                      : 0; // Assign 0 value if too short for DP maximization
+            ? originalDaysValue // Use full value if long enough
+            : 0; // Assign 0 value if too short for DP maximization
         // *** End De-prioritization Logic ***
 
         const nonOverlappingArrIdx = currentVacation.nonOverlappingIndex;
@@ -184,11 +184,11 @@ function findOptimalVacationSet(
             if (p >= ptoCost) {
                 const remainingBudget = p - ptoCost;
                 const prevValue = (dpNonOverlappingRowIdx >= 0 && dpNonOverlappingRowIdx < dp.length)
-                                  ? dp[dpNonOverlappingRowIdx][remainingBudget]
-                                  : { maxTotalDays: 0, chosenVacationIds: [] };
+                    ? dp[dpNonOverlappingRowIdx][remainingBudget]
+                    : { maxTotalDays: 0, chosenVacationIds: [] };
                 option2 = {
-                     maxTotalDays: adjustedDaysValue + prevValue.maxTotalDays, // Use ADJUSTED value
-                     chosenVacationIds: [...prevValue.chosenVacationIds, currentVacation.id]
+                    maxTotalDays: adjustedDaysValue + prevValue.maxTotalDays, // Use ADJUSTED value
+                    chosenVacationIds: [...prevValue.chosenVacationIds, currentVacation.id]
                 };
             }
 
@@ -213,21 +213,21 @@ function findOptimalVacationSet(
     const finalChosenVacations: VacationCandidate[] = [];
 
     bestDpResult.chosenVacationIds.forEach(id => {
-         const vacation = chosenVacationMap.get(id);
-         if (vacation) {
-             finalChosenVacations.push(vacation);
-             finalPtoUsed += vacation.ptoUsed;
-             finalActualTotalDaysOff += vacation.totalDays; // Sum ACTUAL days
-         }
+        const vacation = chosenVacationMap.get(id);
+        if (vacation) {
+            finalChosenVacations.push(vacation);
+            finalPtoUsed += vacation.ptoUsed;
+            finalActualTotalDaysOff += vacation.totalDays; // Sum ACTUAL days
+        }
     });
 
-    finalChosenVacations.sort((a,b) => a.startDate.getTime() - b.startDate.getTime());
+    finalChosenVacations.sort((a, b) => a.startDate.getTime() - b.startDate.getTime());
 
     return {
-         chosenVacations: finalChosenVacations,
-         totalDaysOff: finalActualTotalDaysOff, // Report ACTUAL total days
-         totalPtoUsed: finalPtoUsed
-     };
+        chosenVacations: finalChosenVacations,
+        totalDaysOff: finalActualTotalDaysOff, // Report ACTUAL total days
+        totalPtoUsed: finalPtoUsed
+    };
 }
 
 
@@ -252,7 +252,7 @@ export default function OptimizerPage() {
         setCountries(countryOptions.sort((a, b) => a.name.localeCompare(b.name)));
         const defaultCountries = ["US", "GB", "CA", "AU", "DE"];
         let foundDefault = false;
-        for(const code of defaultCountries) { if (countryOptions.some(c => c.code === code)) { setSelectedCountry(code); foundDefault = true; break; } }
+        for (const code of defaultCountries) { if (countryOptions.some(c => c.code === code)) { setSelectedCountry(code); foundDefault = true; break; } }
         if (!foundDefault && countryOptions.length > 0) setSelectedCountry(countryOptions[0].code);
     }, []);
 
@@ -269,7 +269,7 @@ export default function OptimizerPage() {
                 const publicHolidays: Holiday[] = rawHolidays.filter(h => h.type === "public").map(h => ({ date: new Date(h.date), name: h.name, type: h.type })).sort((a, b) => a.date.getTime() - b.date.getTime());
                 const weekends: Date[] = [];
                 const s = new Date(year, 0, 1); const e = new Date(year, 11, 31);
-                for (let d = s; d <= e; d=addDays(d,1)) { const day = d.getDay(); if (day === 0 || day === 6) weekends.push(new Date(d)); }
+                for (let d = s; d <= e; d = addDays(d, 1)) { const day = d.getDay(); if (day === 0 || day === 6) weekends.push(new Date(d)); }
 
                 console.time("Candidate Generation");
                 const MAX_PTO_PER_CANDIDATE = Math.min(10, ptoDaysCount > 0 ? ptoDaysCount : 5);
@@ -287,8 +287,8 @@ export default function OptimizerPage() {
                 if (optimalSetResult.chosenVacations.length > 0) setCurrentMonth(optimalSetResult.chosenVacations[0].startDate.getMonth());
                 else setCurrentMonth(new Date().getMonth());
 
-             } catch (error) { console.error("Error calculating optimal PTO:", error); setMultiResult(null); }
-             finally { setIsCalculating(false); console.timeEnd("Calculation"); }
+            } catch (error) { console.error("Error calculating optimal PTO:", error); setMultiResult(null); }
+            finally { setIsCalculating(false); console.timeEnd("Calculation"); }
         }, 50);
     };
 
@@ -320,26 +320,26 @@ export default function OptimizerPage() {
         const inRangeDaysInMonth = new Set<string>();
 
         result?.chosenVacations.forEach(vac => {
-             for (let d = new Date(vac.startDate); d <= vac.endDate; d = addDays(d, 1)) {
-                 if (d.getMonth() === month && d.getFullYear() === year) {
+            for (let d = new Date(vac.startDate); d <= vac.endDate; d = addDays(d, 1)) {
+                if (d.getMonth() === month && d.getFullYear() === year) {
                     const dayStr = d.toDateString(); inRangeDaysInMonth.add(dayStr);
                     const isActualWeekend = d.getDay() === 0 || d.getDay() === 6;
                     const holidayInfo = vac.holidays.find(h => isSameDay(h.date, d));
                     if (!holidayInfo && !isActualWeekend) ptoDaysInMonth.add(dayStr);
                     else if (holidayInfo) { holidayDaysInMonth.add(dayStr); holidayNamesMap.set(dayStr, holidayInfo.name); }
                     else if (isActualWeekend) weekendDaysInMonth.add(dayStr);
-                 }
-             }
+                }
+            }
         });
 
         return (
             <div className="mt-4 border rounded-lg p-4 bg-card shadow-sm">
                 <div className="flex items-center justify-between mb-4">
                     <h3 className="font-medium text-lg">{firstDayOfMonthDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</h3>
-                     <div className="flex gap-1">
-                         <Button variant="outline" size="icon" onClick={() => setCurrentMonth((prev) => (prev - 1 + 12) % 12)} aria-label="Previous month"><ChevronLeft className="h-4 w-4" /></Button>
-                         <Button variant="outline" size="icon" onClick={() => setCurrentMonth((prev) => (prev + 1) % 12)} aria-label="Next month"><ChevronRight className="h-4 w-4" /></Button>
-                     </div>
+                    <div className="flex gap-1">
+                        <Button variant="outline" size="icon" onClick={() => setCurrentMonth((prev) => (prev - 1 + 12) % 12)} aria-label="Previous month"><ChevronLeft className="h-4 w-4" /></Button>
+                        <Button variant="outline" size="icon" onClick={() => setCurrentMonth((prev) => (prev + 1) % 12)} aria-label="Next month"><ChevronRight className="h-4 w-4" /></Button>
+                    </div>
                 </div>
                 <div className="grid grid-cols-7 gap-px text-center text-xs">
                     {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <div key={day} className="pb-1 font-medium text-muted-foreground">{day}</div>)}
@@ -361,62 +361,62 @@ export default function OptimizerPage() {
                             <TooltipProvider key={dayStr} delayDuration={100}> <Tooltip> <TooltipTrigger asChild>
                                 <div className={`relative h-16 p-1 ${bgColor} transition-colors duration-150 flex flex-col items-center justify-start border border-gray-100 rounded-sm`}>
                                     <span className={`text-sm ${fontWeight} ${textColor} mb-0.5`}>{day.getDate()}</span>
-                                    {isHoliday && !isPTO && holidayName && (<span className="text-[9px] leading-tight text-red-700 font-medium truncate max-w-full px-0.5 text-center block" title={holidayName}>{holidayName.length > 10 ? `${holidayName.substring(0,8)}...` : holidayName}</span>)}
+                                    {isHoliday && !isPTO && holidayName && (<span className="text-[9px] leading-tight text-red-700 font-medium truncate max-w-full px-0.5 text-center block" title={holidayName}>{holidayName.length > 10 ? `${holidayName.substring(0, 8)}...` : holidayName}</span>)}
                                     {isPTO && (<span className="text-[10px] leading-tight text-green-700 font-bold px-0.5 text-center block">PTO</span>)}
                                 </div>
                             </TooltipTrigger> <TooltipContent className="text-xs max-w-xs">
-                                <p className="font-semibold">{formatDate(day)}</p>
-                                {isHoliday && holidayName && <p>Holiday: {holidayName}</p>} {isPTO && <p>PTO Day</p>}
-                                {isMarkedWeekend && <p>Weekend (During Vacation)</p>} {isSystemWeekend && !isMarkedWeekend && <p>Weekend</p>}
-                                {!isSystemWeekend && !isHoliday && !isPTO && <p>Work Day</p>}
-                            </TooltipContent> </Tooltip> </TooltipProvider> );
+                                    <p className="font-semibold">{formatDate(day)}</p>
+                                    {isHoliday && holidayName && <p>Holiday: {holidayName}</p>} {isPTO && <p>PTO Day</p>}
+                                    {isMarkedWeekend && <p>Weekend (During Vacation)</p>} {isSystemWeekend && !isMarkedWeekend && <p>Weekend</p>}
+                                    {!isSystemWeekend && !isHoliday && !isPTO && <p>Work Day</p>}
+                                </TooltipContent> </Tooltip> </TooltipProvider>);
                     })}
                 </div>
                 <div className="flex gap-3 sm:gap-4 mt-4 justify-center flex-wrap border-t pt-3">
-                     <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-blue-100 border border-blue-200"></div> <span className="text-xs text-muted-foreground">Weekend (in plan)</span> </div>
-                     <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-red-100 border border-red-200"></div> <span className="text-xs text-muted-foreground">Holiday (in plan)</span> </div>
-                     <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-green-100 border border-green-200"></div> <span className="text-xs text-muted-foreground">PTO Used</span> </div>
-                     <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-gray-50 border border-gray-200"></div> <span className="text-xs text-muted-foreground">Weekend (outside plan)</span> </div>
+                    <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-blue-100 border border-blue-200"></div> <span className="text-xs text-muted-foreground">Weekend (in plan)</span> </div>
+                    <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-red-100 border border-red-200"></div> <span className="text-xs text-muted-foreground">Holiday (in plan)</span> </div>
+                    <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-green-100 border border-green-200"></div> <span className="text-xs text-muted-foreground">PTO Used</span> </div>
+                    <div className="flex items-center gap-1.5"> <div className="h-3 w-3 rounded-full bg-gray-50 border border-gray-200"></div> <span className="text-xs text-muted-foreground">Weekend (outside plan)</span> </div>
                 </div>
-            </div> );
+            </div>);
     };
 
     // Main Component Return (JSX Structure remains largely the same)
     return (
         <div className="flex min-h-screen flex-col bg-gray-50">
             {/* Header */}
-             <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
-                 <div className="container flex h-16 items-center justify-between">
-                     <Link href="/" className="flex items-center gap-2 font-bold text-lg"> <Calendar className="h-5 w-5 text-primary" /> <span>SmartHolidayPlanner</span> </Link>
-                 </div>
-             </header>
+            <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur">
+                <div className="container flex h-16 items-center justify-between">
+                    <Link href="/" className="flex items-center gap-2 font-bold text-lg"> <Calendar className="h-5 w-5 text-primary" /> <span>SmartHolidayPlanner</span> </Link>
+                </div>
+            </header>
 
             {/* Main Content */}
             <main className="flex-1 container py-8 md:py-12">
-                 <h1 className="text-3xl font-bold mb-2 text-center md:text-left">Multi-Vacation Optimizer</h1>
-                 <p className="text-center md:text-left text-muted-foreground mb-8">Maximize your total time off (preferring breaks of {MIN_DESIRED_VACATION_LENGTH}+ days) within your PTO budget.</p>
+                <h1 className="text-3xl font-bold mb-2 text-center md:text-left">Multi-Vacation Optimizer</h1>
+                <p className="text-center md:text-left text-muted-foreground mb-8">Maximize your total time off (preferring breaks of {MIN_DESIRED_VACATION_LENGTH}+ days) within your PTO budget.</p>
 
                 <div className="grid gap-8 md:grid-cols-1 lg:grid-cols-3">
                     {/* Input Section */}
-                     <div className="lg:col-span-1">
-                         <Card className="sticky top-20 shadow-md">
-                             <CardHeader><CardTitle>Plan Your Year</CardTitle><CardDescription>Set details to find the optimal vacation combination.</CardDescription></CardHeader>
-                             <CardContent className="space-y-4">
-                                 <div className="space-y-2">
-                                     <Label htmlFor="country">Country</Label>
-                                     <Select value={selectedCountry} onValueChange={setSelectedCountry} required> <SelectTrigger id="country"><SelectValue placeholder="Select a country" /></SelectTrigger> <SelectContent>{countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name} ({c.code})</SelectItem>)}</SelectContent> </Select>
-                                 </div>
-                                 <div className="grid grid-cols-2 gap-4">
-                                     <div className="space-y-2"> <Label htmlFor="year">Year</Label> <Select value={year.toString()} onValueChange={(v) => setYear(Number.parseInt(v))}> <SelectTrigger id="year"><SelectValue /></SelectTrigger> <SelectContent>{[new Date().getFullYear(), new Date().getFullYear() + 1].map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}</SelectContent> </Select> </div>
-                                     <div className="space-y-2"> <Label htmlFor="pto-days">PTO Budget</Label> <Input id="pto-days" type="number" min="0" max="100" value={ptoDaysCount} onChange={(e) => setPtoDaysCount(Math.max(0, Number.parseInt(e.target.value) || 0))} required /> </div>
-                                 </div>
-                             </CardContent>
-                             <CardFooter> <Button onClick={calculateOptimalPTO} disabled={!selectedCountry || ptoDaysCount < 0 || isCalculating} className="w-full" size="lg">{isCalculating ? "Optimizing..." : "Optimize My Year"}</Button> </CardFooter>
-                         </Card>
-                     </div>
+                    <div className="lg:col-span-1">
+                        <Card className="sticky top-20 shadow-md">
+                            <CardHeader><CardTitle>Plan Your Year</CardTitle><CardDescription>Set details to find the optimal vacation combination.</CardDescription></CardHeader>
+                            <CardContent className="space-y-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="country">Country</Label>
+                                    <Select value={selectedCountry} onValueChange={setSelectedCountry} required> <SelectTrigger id="country"><SelectValue placeholder="Select a country" /></SelectTrigger> <SelectContent>{countries.map(c => <SelectItem key={c.code} value={c.code}>{c.name} ({c.code})</SelectItem>)}</SelectContent> </Select>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2"> <Label htmlFor="year">Year</Label> <Select value={year.toString()} onValueChange={(v) => setYear(Number.parseInt(v))}> <SelectTrigger id="year"><SelectValue /></SelectTrigger> <SelectContent>{[new Date().getFullYear(), new Date().getFullYear() + 1].map(y => <SelectItem key={y} value={y.toString()}>{y}</SelectItem>)}</SelectContent> </Select> </div>
+                                    <div className="space-y-2"> <Label htmlFor="pto-days">PTO Budget</Label> <Input id="pto-days" type="number" min="0" max="100" value={ptoDaysCount} onChange={(e) => setPtoDaysCount(Math.max(0, Number.parseInt(e.target.value) || 0))} required /> </div>
+                                </div>
+                            </CardContent>
+                            <CardFooter> <Button onClick={calculateOptimalPTO} disabled={!selectedCountry || ptoDaysCount < 0 || isCalculating} className="w-full" size="lg">{isCalculating ? "Optimizing..." : "Optimize My Year"}</Button> </CardFooter>
+                        </Card>
+                    </div>
 
                     {/* Results Section */}
-                     <div className="lg:col-span-2">
+                    <div className="lg:col-span-2">
                         {isCalculating ? ( /* Loading State */
                             <div className="flex flex-col items-center justify-center h-64 p-8 text-center border rounded-lg bg-card shadow-sm"> <Calendar className="h-12 w-12 text-primary animate-spin mb-4" /> <h3 className="text-lg font-medium mb-2">Calculating Optimal Plan...</h3> <p className="text-muted-foreground">Finding the best combination of longer breaks...</p> </div>
                         ) : multiResult ? ( /* Results Display */
@@ -425,9 +425,9 @@ export default function OptimizerPage() {
                                 <Card className="shadow-md">
                                     <CardHeader><CardTitle className="text-xl">Optimal Vacation Plan Summary</CardTitle></CardHeader>
                                     <CardContent className="grid gap-4 sm:grid-cols-3 text-center">
-                                         <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50"> <span className="text-3xl font-bold text-primary">{multiResult.totalDaysOff}</span> <span className="text-sm text-muted-foreground mt-1">Total Days Off</span> </div>
-                                         <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50"> <span className="text-3xl font-bold">{multiResult.totalPtoUsed} / {ptoDaysCount}</span> <span className="text-sm text-muted-foreground mt-1">PTO Days Used</span> </div>
-                                         <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50"> <span className="text-3xl font-bold">{multiResult.totalPtoUsed > 0 ? (multiResult.totalDaysOff / multiResult.totalPtoUsed).toFixed(1) : 'N/A'}</span> <span className="text-sm text-muted-foreground mt-1">Overall Ratio</span> </div>
+                                        <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50"> <span className="text-3xl font-bold text-primary">{multiResult.totalDaysOff}</span> <span className="text-sm text-muted-foreground mt-1">Total Days Off</span> </div>
+                                        <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50"> <span className="text-3xl font-bold">{multiResult.totalPtoUsed} / {ptoDaysCount}</span> <span className="text-sm text-muted-foreground mt-1">PTO Days Used</span> </div>
+                                        <div className="flex flex-col items-center justify-center rounded-lg border p-4 bg-gray-50/50"> <span className="text-3xl font-bold">{multiResult.totalPtoUsed > 0 ? (multiResult.totalDaysOff / multiResult.totalPtoUsed).toFixed(1) : 'N/A'}</span> <span className="text-sm text-muted-foreground mt-1">Overall Ratio</span> </div>
                                     </CardContent>
                                     {multiResult.chosenVacations.some(v => v.totalDays < MIN_DESIRED_VACATION_LENGTH) && (
                                         <CardFooter><Alert variant="default" className="bg-amber-50 border-amber-200 text-amber-800"><Info className="h-4 w-4 text-amber-700" /><AlertDescription className="text-xs">Note: Includes some shorter breaks ({'<'} {MIN_DESIRED_VACATION_LENGTH} days) as they were necessary to maximize the overall time off within the budget.</AlertDescription></Alert></CardFooter>
@@ -436,7 +436,7 @@ export default function OptimizerPage() {
                                 {/* Chosen Vacations List */}
                                 {multiResult.chosenVacations.length > 0 ? (
                                     <Card className="shadow-md">
-                                        <CardHeader><CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5 text-primary"/> Chosen Vacations</CardTitle></CardHeader>
+                                        <CardHeader><CardTitle className="flex items-center gap-2"><ListChecks className="h-5 w-5 text-primary" /> Chosen Vacations</CardTitle></CardHeader>
                                         <CardContent className="space-y-4">
                                             {multiResult.chosenVacations.map((vac, index) => (
                                                 <div key={vac.id} className="p-4 border rounded-lg bg-blue-50/30">
@@ -456,24 +456,24 @@ export default function OptimizerPage() {
                                 )}
                                 {/* Calendar View */}
                                 <Card className="shadow-md">
-                                     <CardHeader><CardTitle>Year Calendar View</CardTitle><CardDescription>Navigate months to see your plan.</CardDescription></CardHeader>
-                                     <CardContent ref={calendarRef}>{renderCalendar(currentMonth, year, multiResult)}</CardContent>
-                                     <CardFooter className="flex justify-end"><Button variant="outline" onClick={handleShareImage}><Download className="mr-2 h-4 w-4" /> Download Calendar Image</Button></CardFooter>
+                                    <CardHeader><CardTitle>Year Calendar View</CardTitle><CardDescription>Navigate months to see your plan.</CardDescription></CardHeader>
+                                    <CardContent ref={calendarRef}>{renderCalendar(currentMonth, year, multiResult)}</CardContent>
+                                    <CardFooter className="flex justify-end"><Button variant="outline" onClick={handleShareImage}><Download className="mr-2 h-4 w-4" /> Download Calendar Image</Button></CardFooter>
                                 </Card>
                             </div>
                         ) : ( /* Initial State */
-                             <div className="flex flex-col items-center justify-center h-64 p-8 text-center border rounded-lg bg-card shadow-sm"> <Calendar className="h-12 w-12 text-muted-foreground mb-4" /> <h3 className="text-lg font-medium mb-2">Ready to Optimize Your Year?</h3> <p className="text-muted-foreground mb-4">Fill in your details and click "Optimize My Year".</p> </div>
+                            <div className="flex flex-col items-center justify-center h-64 p-8 text-center border rounded-lg bg-card shadow-sm"> <Calendar className="h-12 w-12 text-muted-foreground mb-4" /> <h3 className="text-lg font-medium mb-2">Ready to Optimize Your Year?</h3> <p className="text-muted-foreground mb-4">Fill in your details and click "Optimize My Year".</p> </div>
                         )}
                     </div>
                 </div>
             </main>
 
             {/* Footer */}
-             <footer className="border-t mt-12 bg-background">
-                 <div className="container flex flex-col items-center justify-between gap-4 py-6 md:h-20 md:flex-row md:py-0">
-                     <div className="flex items-center gap-2"> <Calendar className="h-5 w-5 text-primary hidden md:block" /> <p className="text-center text-sm text-muted-foreground md:text-left">© {new Date().getFullYear()} SmartHolidayPlanner</p> </div>
-                 </div>
-             </footer>
+            <footer className="border-t mt-12 bg-background">
+                <div className="container flex flex-col items-center justify-between gap-4 py-6 md:h-20 md:flex-row md:py-0">
+                    <div className="flex items-center gap-2"> <Calendar className="h-5 w-5 text-primary hidden md:block" /> <p className="text-center text-sm text-muted-foreground md:text-left">© {new Date().getFullYear()} SmartHolidayPlanner</p> </div>
+                </div>
+            </footer>
         </div>
     );
 }
